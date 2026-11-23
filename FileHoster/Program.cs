@@ -231,29 +231,29 @@ app.UseExceptionHandler(errorApp =>
 app.Use(async (context, next) =>
 {
     // HSTS (HTTP Strict Transport Security)
-    context.Response.Headers.Add("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    context.Response.Headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
     
     // Prevent MIME sniffing
-    context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     
     // Clickjacking protection
-    context.Response.Headers.Add("X-Frame-Options", "DENY");
+    context.Response.Headers["X-Frame-Options"] = "DENY";
     
     // XSS protection
-    context.Response.Headers.Add("X-XSS-Protection", "1; mode=block");
+    context.Response.Headers["X-XSS-Protection"] = "1; mode=block";
     
     // Cross-Origin Policy
-    context.Response.Headers.Add("Cross-Origin-Embedder-Policy", "require-corp");
-    context.Response.Headers.Add("Cross-Origin-Opener-Policy", "same-origin");
+    context.Response.Headers["Cross-Origin-Embedder-Policy"] = "require-corp";
+    context.Response.Headers["Cross-Origin-Opener-Policy"] = "same-origin";
     
     // Content Security Policy
-    context.Response.Headers.Add("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;");
+    context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;";
     
     // Referrer Policy
-    context.Response.Headers.Add("Referrer-Policy", "strict-origin-when-cross-origin");
+    context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
     
     // Permissions Policy (formerly Feature Policy)
-    context.Response.Headers.Add("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+    context.Response.Headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()";
     
     Log.Debug("Security headers applied to response");
     await next();

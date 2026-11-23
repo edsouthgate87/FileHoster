@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: |
+          dotnet restore FileHoster/FileHoster.csproj
+          dotnet restore FileHosterProxy/FileHosterProxy.csproj
+          dotnet restore FileHoster.Tests/FileHoster.Tests.csproj
+
+      - name: Build
+        run: |
+          dotnet build FileHoster/FileHoster.csproj --configuration Release --no-restore
+          dotnet build FileHosterProxy/FileHosterProxy.csproj --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test FileHoster.Tests/FileHoster.Tests.csproj --configuration Release --no-restore
+
+      - name: Upload script tests
+        shell: pwsh
+        run: ./FileHoster.Tests/UploadMissingPackagesTests.ps1
+
+  docker:
+    name: Docker and deployment config
+    runs-on: ubuntu-latest
+    env:
+      ACME_EMAIL: ops@example.com
+      FILEHOSTER_DOMAIN: files.example.com
+      FILEHOSTER_BIND_ADDRESS: 127.0.0.1
+      FILEHOSTER_PROXY_BIND_ADDRESS: 127.0.0.1
+      FILEHOSTER_PUBLIC_BASE_URL: https://files.example.com
+      FILEHOSTER_SECRET_KEY: ci-placeholder-secret-not-for-deployment
+      FILEHOSTER_TRUSTED_API_NETWORKS: 10.0.0.0/8
+      POSTGRES_PASSWORD: ci-placeholder
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Compose files
+        run: |
+          docker compose -f docker-compose-local.yml config --quiet
+          docker compose -f docker-compose-prod.yml config --quiet
+          docker compose -f docker-compose-prod.yml -f docker-compose-https.yml config --quiet
+
+      - name: Validate Caddyfile
+        run: >
+          docker run --rm
+          -e FILEHOSTER_DOMAIN -e ACME_EMAIL
+          -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro"
+          caddy:2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: Build FileHoster image
+        run: docker build -f Dockerfile -t filehoster-filehoster:ci .
+
+      - name: Build FileHosterProxy image
+        run: docker build -f FileHosterProxy/Dockerfile -t filehoster-proxy:ci .

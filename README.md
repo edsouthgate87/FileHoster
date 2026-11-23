@@ -1,5 +1,7 @@
 # FileHoster
 
+[![CI](https://github.com/edsouthgate87/FileHoster/actions/workflows/ci.yml/badge.svg)](https://github.com/edsouthgate87/FileHoster/actions/workflows/ci.yml)
+
 FileHoster is a .NET 10 service for storing application packages and distributing them through short-lived signed download URLs. A separate proxy lets desktop clients list and download files without embedding the FileHoster secret.
 
 Licensed under the [Apache License 2.0](LICENSE).
@@ -245,6 +247,8 @@ Build the images from the repository root:
 docker build -f Dockerfile -t filehoster-filehoster:latest .
 docker build -f FileHosterProxy\Dockerfile -t filehoster-proxy:latest .
 ```
+
+The [CI workflow](.github/workflows/ci.yml) runs these steps on every push and pull request to `main`. It also validates the Compose files and the Caddyfile.
 
 ## Repository policy
 

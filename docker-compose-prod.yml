@@ -1,0 +1,109 @@
+services:
+  filehoster-postgres:
+    image: postgres:16-alpine
+    container_name: filehoster-postgres-prod
+    environment:
+      POSTGRES_USER: filehoster
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: filehoster
+      POSTGRES_INITDB_ARGS: "-c shared_buffers=256MB -c max_connections=200"
+    volumes:
+      - filehoster_postgres_data:/var/lib/postgresql/data
+    networks:
+      - filehoster-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U filehoster -d filehoster"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+        reservations:
+          cpus: "1"
+          memory: 512M
+
+  filehoster:
+    image: filehoster-filehoster:latest
+    container_name: filehoster-prod
+    ports:
+      - "${FILEHOSTER_BIND_ADDRESS:?Set FILEHOSTER_BIND_ADDRESS in .env}:5011:5000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__PostgreSQL: "Host=filehoster-postgres;Port=5432;Database=filehoster;Username=filehoster;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env};Command Timeout=600"
+      InitialApplication__SecretKey: ${FILEHOSTER_SECRET_KEY:?Set FILEHOSTER_SECRET_KEY in .env}
+      TrustedApiNetworks: ${FILEHOSTER_TRUSTED_API_NETWORKS:?Set FILEHOSTER_TRUSTED_API_NETWORKS in .env}
+      Logging__LogLevel__Default: Information
+      Logging__LogLevel__Microsoft: Warning
+    depends_on:
+      filehoster-postgres:
+        condition: service_healthy
+    networks:
+      - filehoster-network
+    volumes:
+      - filehoster_data:/data/files
+      - filehoster_logs:/app/logs
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+
+  filehoster-proxy:
+    image: filehoster-proxy:latest
+    container_name: filehoster-proxy-prod
+    ports:
+      - "${FILEHOSTER_PROXY_BIND_ADDRESS:?Set FILEHOSTER_PROXY_BIND_ADDRESS in .env}:5001:5001"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      FileHoster__BaseUrl: http://filehoster:5000
+      FileHoster__PublicBaseUrl: ${FILEHOSTER_PUBLIC_BASE_URL:?Set FILEHOSTER_PUBLIC_BASE_URL in .env}
+      FileHoster__ApplicationId: SampleApp
+      FileHoster__SecretKey: ${FILEHOSTER_SECRET_KEY:?Set FILEHOSTER_SECRET_KEY in .env}
+    depends_on:
+      filehoster:
+        condition: service_healthy
+    networks:
+      - filehoster-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+volumes:
+  filehoster_postgres_data:
+  filehoster_data:
+  filehoster_logs:
+
+networks:
+  filehoster-network:
+    driver: bridge

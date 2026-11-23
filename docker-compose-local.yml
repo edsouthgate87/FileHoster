@@ -1,0 +1,82 @@
+name: filehoster-local
+
+services:
+  filehoster-postgres:
+    image: postgres:16-alpine
+    container_name: filehoster-postgres-local
+    environment:
+      POSTGRES_USER: filehoster
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-filehoster-dev-password}
+      POSTGRES_DB: filehoster
+    volumes:
+      - filehoster_postgres_local_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U filehoster -d filehoster"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - filehoster-network
+
+  filehoster:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: filehoster-filehoster:local
+    container_name: filehoster-local
+    ports:
+      - "5011:5000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__PostgreSQL: "Host=filehoster-postgres;Port=5432;Database=filehoster;Username=filehoster;Password=${POSTGRES_PASSWORD:-filehoster-dev-password}"
+      InitialApplication__SecretKey: ${FILEHOSTER_SECRET_KEY:-dev-only-change-me}
+      StoragePath: /data/files
+    depends_on:
+      filehoster-postgres:
+        condition: service_healthy
+    volumes:
+      - filehoster_local_data:/data/files
+      - filehoster_local_logs:/app/logs
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - filehoster-network
+
+  filehoster-proxy:
+    build:
+      context: .
+      dockerfile: FileHosterProxy/Dockerfile
+    image: filehoster-proxy:local
+    container_name: filehoster-proxy-local
+    ports:
+      - "5001:5001"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      FileHoster__BaseUrl: http://filehoster:5000
+      FileHoster__PublicBaseUrl: ${FILEHOSTER_PUBLIC_BASE_URL:-http://localhost:5011}
+      FileHoster__ApplicationId: SampleApp
+      FileHoster__SecretKey: ${FILEHOSTER_SECRET_KEY:-dev-only-change-me}
+    depends_on:
+      filehoster:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - filehoster-network
+
+networks:
+  filehoster-network:
+    driver: bridge
+
+volumes:
+  filehoster_postgres_local_data:
+  filehoster_local_data:
+  filehoster_local_logs:

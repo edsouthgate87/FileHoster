@@ -25,7 +25,52 @@ The FileHoster and proxy secret values must match. Do not place production value
 
 **Rollout gate:** This release changes the upstream HMAC protocol and adds a database migration. Deploy the FileHoster and proxy images together; older proxies/upload scripts cannot authenticate to the new service. Update your uploader's `FILEHOSTER_SECRET_KEY` securely. The key must be unique and at least 32 characters. If `SampleApp` already exists, rotate its database `SecretKey` to match `.env` before restarting the services (back up the database first; use a privileged SQL session rather than typing the new key in shell history). Existing signed download URLs expire when the key is rotated. Confirm the new secret is not a known/example value.
 
-**TLS is not yet configured here.** Binding to a specific LAN interface and allowing only the Docker network plus the uploader's source IP for `/api/` reduces exposure, but signed download URLs are still bearer credentials over plaintext HTTP. Keep both published ports behind a firewall/VPN and do not expose them to the public Internet. When a certificate and ingress are available, terminate HTTPS at that ingress, use HTTPS for `FILEHOSTER_PUBLIC_BASE_URL` and the client's proxy URL, and allow only ingress/uploader traffic to backend ports. Do not treat the current HTTP deployment as internet-safe. For a Docker bridge outside `172.16.0.0/12`, add its actual CIDR to `FILEHOSTER_TRUSTED_API_NETWORKS`; the service rejects unmatched administrative API calls.
+**Plain HTTP is not internet-safe.** Binding to a specific LAN interface and allowing only the Docker network plus the uploader's source IP for `/api/` reduces exposure, but signed download URLs are bearer credentials and travel in cleartext over HTTP. Without the HTTPS overlay, keep both published ports behind a firewall/VPN and do not expose them to the public Internet. For a Docker bridge outside `172.16.0.0/12`, add its actual CIDR to `FILEHOSTER_TRUSTED_API_NETWORKS`; the service rejects unmatched administrative API calls.
+
+## HTTPS with Caddy
+
+`docker-compose-https.yml` adds a [Caddy](https://caddyserver.com/) container that terminates TLS and obtains and renews certificates automatically. It serves one domain:
+
+| Path | Routed to |
+|---|---|
+| `/download/*` | FileHoster (signed-token downloads) |
+| everything else | FileHosterProxy (client API and `/health`) |
+
+FileHoster's administrative `/api/` routes are deliberately **not** forwarded. Behind an ingress, FileHoster sees Caddy's Docker-network address as the caller. That address falls inside `FILEHOSTER_TRUSTED_API_NETWORKS`, so forwarding `/api/` would bypass the source-IP restriction. Uploads therefore continue to use the LAN-bound FileHoster port.
+
+Requirements:
+
+- Docker Compose 2.24 or later (the overlay uses `!reset` to unpublish the proxy's HTTP port).
+- A DNS record pointing `FILEHOSTER_DOMAIN` at the server.
+- Inbound TCP 80 and 443 (and UDP 443 for HTTP/3) reachable from the Internet, so the certificate authority can validate the domain.
+- FileHoster served at the domain root. `FILEHOSTER_PUBLIC_BASE_URL` keeps only the scheme, host, and port, so path-prefix hosting such as `https://example.com/filehoster` breaks download links.
+
+Add these values to `.env`:
+
+```bash
+FILEHOSTER_DOMAIN=files.example.com
+ACME_EMAIL=<contact email for certificate expiry notices>
+FILEHOSTER_PUBLIC_BASE_URL=https://files.example.com
+```
+
+`FILEHOSTER_PROXY_BIND_ADDRESS` is still required by `docker-compose-prod.yml`, but the overlay does not publish that port. Copy `Caddyfile` and `docker-compose-https.yml` to the server alongside `docker-compose-prod.yml`, then include the overlay in every Compose command:
+
+```bash
+docker compose -f docker-compose-prod.yml -f docker-compose-https.yml up -d
+docker compose -f docker-compose-prod.yml -f docker-compose-https.yml ps
+```
+
+Point desktop clients at `https://<FILEHOSTER_DOMAIN>`. Certificates persist in the `caddy_data` volume; include it in backups to avoid unnecessary re-issuance. Caddy access logging is intentionally left off so signed URLs are not written to logs.
+
+Verify:
+
+```bash
+curl --fail "https://${FILEHOSTER_DOMAIN}/health"
+curl --fail "https://${FILEHOSTER_DOMAIN}/api/v1/filehoster/health"
+curl --silent --output /dev/null --write-out '%{http_code}\n' "https://${FILEHOSTER_DOMAIN}/api/SampleApp/files"   # expect 404
+```
+
+To use your own certificate or an existing ingress instead, apply the same routing rules: expose only `/download/*` from FileHoster, never its `/api/` routes.
 
 ## Build and transfer images
 
@@ -41,6 +86,8 @@ docker save filehoster-proxy:latest -o filehoster-proxy-image.tar
 scp filehoster-image.tar <user>@<server>:~/filehoster/
 scp filehoster-proxy-image.tar <user>@<server>:~/filehoster/
 scp docker-compose-prod.yml <user>@<server>:~/filehoster/
+# HTTPS deployments only:
+scp docker-compose-https.yml Caddyfile <user>@<server>:~/filehoster/
 ```
 
 Image archives are deployment artifacts. Delete them locally and remotely after a successful deployment.
@@ -56,6 +103,8 @@ docker load -i filehoster-proxy-image.tar
 docker compose -f docker-compose-prod.yml up -d
 docker compose -f docker-compose-prod.yml ps
 ```
+
+With the HTTPS overlay, add `-f docker-compose-https.yml` after `-f docker-compose-prod.yml` in this and every later Compose command. Otherwise Compose republishes the proxy's HTTP port and drops Caddy from the stack.
 
 For later FileHoster-only updates that do **not** change the authentication protocol:
 
@@ -97,7 +146,7 @@ scripts\upload-missing-packages.cmd -SourcePath "\\server\share\packages" -ApiUr
 scripts\upload-missing-packages.cmd -SourcePath "\\server\share\packages" -ApiUrl "http://server:5011" -ProxyUrl "http://server:5001" -SshTarget "user@server"
 ```
 
-The wrapper requires PowerShell 7 and the uploader's source IP in `FILEHOSTER_TRUSTED_API_NETWORKS`. When an upload is needed, `-SshTarget` must identify an account that can read `~/filehoster/.env`; the wrapper expects its `FILEHOSTER_SECRET_KEY` to be 64 lowercase hexadecimal characters. It reads the secret over SSH only when needed and does not save it to disk or display it. The proxy listing must be complete for duplicate detection; otherwise the script fails rather than uploading blindly. Do not paste `.env` or signed URLs into logs or chat.
+The wrapper requires PowerShell 7 and the uploader's source IP in `FILEHOSTER_TRUSTED_API_NETWORKS`. With the HTTPS overlay, use `-ProxyUrl "https://<FILEHOSTER_DOMAIN>"` and keep `-ApiUrl` on the LAN-bound FileHoster port. When an upload is needed, `-SshTarget` must identify an account that can read `~/filehoster/.env`; the wrapper expects its `FILEHOSTER_SECRET_KEY` to be 64 lowercase hexadecimal characters. It reads the secret over SSH only when needed and does not save it to disk or display it. The proxy listing must be complete for duplicate detection; otherwise the script fails rather than uploading blindly. Do not paste `.env` or signed URLs into logs or chat.
 
 For a different trusted source with its own securely configured key, use the generic script directly in PowerShell 7:
 
@@ -181,7 +230,8 @@ Never run `docker compose down -v` in production unless permanent data deletion 
 - Keep `.env` mode `600`.
 - Rotate shared secrets after suspected disclosure.
 - Expose the proxy to clients; restrict direct FileHoster upload/API access to trusted networks.
-- Put HTTPS in front of both public endpoints.
+- Put HTTPS in front of both public endpoints (see [HTTPS with Caddy](#https-with-caddy)).
+- Never forward FileHoster's `/api/` routes through a public ingress.
 - Monitor failed authentication and disk usage.
 - Retain and rotate application logs.
 - Remove transferred image archives after deployment.

@@ -1,0 +1,26 @@
+# HTTPS ingress for FileHoster. Used by docker-compose-https.yml.
+# Caddy obtains and renews certificates automatically for FILEHOSTER_DOMAIN.
+#
+# Only two backend surfaces are published:
+#   /download/*  -> FileHoster signed downloads (token-authenticated)
+#   everything else -> FileHosterProxy client API
+# FileHoster's administrative /api/ routes are never forwarded. Behind an ingress,
+# FileHoster sees Caddy's Docker-network address, so forwarding /api/ would bypass
+# the TrustedApiNetworks source-IP restriction.
+#
+# Access logging is intentionally not enabled: signed download URLs are bearer
+# credentials until they expire and must not be written to logs.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$FILEHOSTER_DOMAIN} {
+	handle /download/* {
+		reverse_proxy filehoster:5000
+	}
+
+	handle {
+		reverse_proxy filehoster-proxy:5001
+	}
+}

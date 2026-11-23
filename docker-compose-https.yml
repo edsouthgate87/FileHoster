@@ -1,0 +1,42 @@
+# Optional HTTPS overlay for docker-compose-prod.yml. Requires Docker Compose 2.24+.
+#
+#   docker compose -f docker-compose-prod.yml -f docker-compose-https.yml up -d
+#
+# Adds a Caddy ingress that terminates TLS on ports 80/443 with automatic certificates.
+# The proxy's plain-HTTP port is no longer published; clients use https://FILEHOSTER_DOMAIN.
+# The FileHoster port stays bound to FILEHOSTER_BIND_ADDRESS for trusted uploaders only.
+services:
+  filehoster-proxy:
+    ports: !reset []
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: filehoster-caddy-prod
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      FILEHOSTER_DOMAIN: ${FILEHOSTER_DOMAIN:?Set FILEHOSTER_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      filehoster:
+        condition: service_healthy
+      filehoster-proxy:
+        condition: service_healthy
+    networks:
+      - filehoster-network
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:

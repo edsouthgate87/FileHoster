@@ -24,20 +24,26 @@ flowchart LR
     api["FileHoster API<br/>HTTP :5000 in Docker<br/>host :5011"]
     postgres[("PostgreSQL")]
     storage[("Persistent package storage")]
-    ingress["Optional TLS ingress<br/>not included"]
+    ingress["Optional Caddy HTTPS ingress<br/>docker-compose-https.yml"]
 
-    client -->|"List, metadata, request signed URL (HTTP locally; HTTPS via ingress)"| proxy
+    client -->|"List, metadata, request signed URL (HTTP locally)"| proxy
     proxy -->|"HMAC-authenticated requests"| api
     api --> postgres
     api --> storage
-    client -->|"Fetch signed URL (HTTP locally; HTTPS via ingress)"| api
+    client -->|"Fetch signed URL (HTTP locally)"| api
 
-    client -. "HTTPS when configured" .-> ingress
-    ingress -. "HTTP upstream" .-> proxy
-    ingress -. "HTTP upstream" .-> api
+    client -. "HTTPS :443" .-> ingress
+    ingress -. "/download/* only" .-> api
+    ingress -. "all other paths" .-> proxy
 ```
 
-With Docker Compose, the published endpoints use plain HTTP; HTTPS is not configured by this repository. For HTTPS deployments, configure an ingress to terminate TLS, set the proxy URL and `FILEHOSTER_PUBLIC_BASE_URL` to their HTTPS addresses, and keep direct backend ports protected. See [OPERATIONS.md](OPERATIONS.md).
+The base Compose files publish plain HTTP. For HTTPS, add the included [Caddy](https://caddyserver.com/) overlay, which obtains and renews certificates automatically:
+
+```bash
+docker compose -f docker-compose-prod.yml -f docker-compose-https.yml up -d
+```
+
+The overlay serves everything from one domain (`FILEHOSTER_DOMAIN`): `/download/*` goes to FileHoster and every other path goes to the proxy. FileHoster's administrative `/api/` routes are never forwarded, and the proxy's HTTP port is no longer published. Set `FILEHOSTER_PUBLIC_BASE_URL` to `https://<FILEHOSTER_DOMAIN>` and point clients at the same address. See [HTTPS with Caddy](OPERATIONS.md#https-with-caddy) for requirements and setup.
 
 > [!WARNING]
 > The client-facing proxy does not authenticate callers. Anyone who can reach it can list packages and request signed download URLs for content the configured application may download. Signed URLs are bearer links until they expire. Restrict proxy access or add authentication at an ingress if the content should not be public.
@@ -180,7 +186,7 @@ scripts\upload-missing-packages.cmd -SourcePath "\\server\share\packages" -ApiUr
 scripts\upload-missing-packages.cmd -SourcePath "\\server\share\packages" -ApiUrl "http://server:5011" -ProxyUrl "http://server:5001" -SshTarget "user@server"
 ```
 
-The wrapper checks both sidecar sizes and hashes, skips exact packages already hosted, retrieves the application key over SSH without displaying or storing it locally, uploads only missing packages, and verifies the resulting hashes through the proxy. `-Preview` performs read-only checks without SSH; `-SshTarget` is required only when an upload is needed. The SSH account must be able to read `~/filehoster/.env`, where `FILEHOSTER_SECRET_KEY` must be 64 lowercase hexadecimal characters for this wrapper. Existing HTTP endpoints must remain behind a firewall/VPN until TLS is configured.
+The wrapper checks both sidecar sizes and hashes, skips exact packages already hosted, retrieves the application key over SSH without displaying or storing it locally, uploads only missing packages, and verifies the resulting hashes through the proxy. `-Preview` performs read-only checks without SSH; `-SshTarget` is required only when an upload is needed. The SSH account must be able to read `~/filehoster/.env`, where `FILEHOSTER_SECRET_KEY` must be 64 lowercase hexadecimal characters for this wrapper. With the HTTPS overlay, pass `-ProxyUrl "https://<FILEHOSTER_DOMAIN>"`; `-ApiUrl` still targets the LAN-bound FileHoster port because uploads are never routed through the public ingress. Plain-HTTP endpoints must remain behind a firewall/VPN.
 
 For other package directories or deployments, use the generic uploader with a securely supplied `FILEHOSTER_SECRET_KEY`:
 
@@ -203,7 +209,9 @@ Important environment variables:
 |---|---|---|
 | `POSTGRES_PASSWORD` | Compose/PostgreSQL | Database password |
 | `FILEHOSTER_SECRET_KEY` | FileHoster and proxy | Shared HMAC secret |
-| `FILEHOSTER_PUBLIC_BASE_URL` | Proxy | Externally reachable FileHoster origin used in signed URLs |
+| `FILEHOSTER_PUBLIC_BASE_URL` | Proxy | Externally reachable FileHoster origin used in signed URLs. Only the scheme, host, and port are used, so FileHoster must be served at the domain root, not under a path prefix |
+| `FILEHOSTER_DOMAIN` | Caddy (HTTPS overlay) | Public domain that Caddy serves and obtains a certificate for |
+| `ACME_EMAIL` | Caddy (HTTPS overlay) | Contact email for the certificate authority |
 | `ConnectionStrings__PostgreSQL` | FileHoster | PostgreSQL connection string |
 | `StoragePath` | FileHoster | Persistent file directory |
 | `FileHoster__BaseUrl` | Proxy | Internal FileHoster URL |

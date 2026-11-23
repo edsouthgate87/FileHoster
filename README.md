@@ -4,22 +4,43 @@ FileHoster is a .NET 8 service for storing application packages and distributing
 
 Licensed under the [Apache License 2.0](LICENSE).
 
-## Architecture
+## Contents
 
-```text
-Avalonia client
-    |
-    | unauthenticated proxy API
-    v
-FileHosterProxy (:5001)
-    |
-    | HMAC-authenticated API
-    v
-FileHoster (:5011 externally, :5000 in Docker)
-    |
-    +-- PostgreSQL metadata
-    +-- persistent package storage
+- [Architecture and security](#architecture-and-security)
+- [Prerequisites](#prerequisites)
+- [Local development](#local-development)
+- [Client API](#client-api)
+- [FileHoster API](#filehoster-api)
+- [Package upload](#package-upload)
+- [Configuration](#configuration)
+- [Build and test](#build-and-test)
+
+## Architecture and security
+
+```mermaid
+flowchart LR
+    client["Desktop client"]
+    proxy["FileHosterProxy<br/>HTTP :5001"]
+    api["FileHoster API<br/>HTTP :5000 in Docker<br/>host :5011"]
+    postgres[("PostgreSQL")]
+    storage[("Persistent package storage")]
+    ingress["Optional TLS ingress<br/>not included"]
+
+    client -->|"List, metadata, request signed URL (HTTP locally; HTTPS via ingress)"| proxy
+    proxy -->|"HMAC-authenticated requests"| api
+    api --> postgres
+    api --> storage
+    client -->|"Fetch signed URL (HTTP locally; HTTPS via ingress)"| api
+
+    client -. "HTTPS when configured" .-> ingress
+    ingress -. "HTTP upstream" .-> proxy
+    ingress -. "HTTP upstream" .-> api
 ```
+
+With Docker Compose, the published endpoints use plain HTTP; HTTPS is not configured by this repository. For HTTPS deployments, configure an ingress to terminate TLS, set the proxy URL and `FILEHOSTER_PUBLIC_BASE_URL` to their HTTPS addresses, and keep direct backend ports protected. See [OPERATIONS.md](OPERATIONS.md).
+
+> [!WARNING]
+> The client-facing proxy does not authenticate callers. Anyone who can reach it can list packages and request signed download URLs for content the configured application may download. Signed URLs are bearer links until they expire. Restrict proxy access or add authentication at an ingress if the content should not be public.
 
 Projects:
 
@@ -47,11 +68,23 @@ docker compose -f docker-compose-local.yml up -d --build
 docker compose -f docker-compose-local.yml ps
 ```
 
-Endpoints:
+Wait until all three services report `healthy`, then check the services:
 
-- Proxy health: `http://localhost:5001/health`
-- Proxy file list: `http://localhost:5001/api/v1/filehoster/files`
-- FileHoster health: `http://localhost:5011/health`
+```powershell
+Invoke-RestMethod http://localhost:5001/health
+Invoke-RestMethod http://localhost:5001/api/v1/filehoster/health
+Invoke-RestMethod http://localhost:5011/health
+```
+
+The client-facing file list is available at `http://localhost:5001/api/v1/filehoster/files`. On a fresh local database, before any uploads, it returns an empty list (`total: 0`, `items: []`).
+
+These local endpoints use HTTP, not HTTPS:
+
+| Service | Local URL |
+|---|---|
+| Proxy health | `http://localhost:5001/health` |
+| Proxy file list | `http://localhost:5001/api/v1/filehoster/files` |
+| FileHoster health | `http://localhost:5011/health` |
 
 Stop the stack with:
 
@@ -62,11 +95,11 @@ docker compose -f docker-compose-local.yml down
 Run without Docker:
 
 ```powershell
-dotnet run --project FileHoster\FileHoster.csproj
+dotnet run --project FileHoster\FileHoster.csproj --launch-profile http
 dotnet run --project FileHosterProxy\FileHosterProxy.csproj
 ```
 
-Configure PostgreSQL and the shared application secret through environment variables before running the projects directly.
+The FileHoster `http` launch profile listens on `http://localhost:5087`; its separate `https` profile is configured for `https://localhost:7173`. The proxy listens on port `5001`. Start PostgreSQL and configure `ConnectionStrings__PostgreSQL`, `InitialApplication__SecretKey`, `FileHoster__BaseUrl`, `FileHoster__PublicBaseUrl`, and `FileHoster__SecretKey` through environment variables. The application and proxy secret values must match; set the proxy base URL to the FileHoster address you are running.
 
 ## Client API
 

@@ -10,6 +10,7 @@ Licensed under the [Apache License 2.0](LICENSE).
 
 - [Architecture and security](#architecture-and-security)
 - [Prerequisites](#prerequisites)
+- [Published container images](#published-container-images)
 - [Local development](#local-development)
 - [Client API](#client-api)
 - [FileHoster API](#filehoster-api)
@@ -65,6 +66,22 @@ Projects:
 - Docker Desktop or Docker Engine with Compose
 - PowerShell 7 for the upload scripts (`pwsh` on PATH)
 - OpenSSH client for verified package uploads (`ssh` on PATH)
+
+## Published container images
+
+Publishing a GitHub Release builds and pushes these images to GitHub Container Registry:
+
+- `ghcr.io/edsouthgate87/filehoster`
+- `ghcr.io/edsouthgate87/filehoster-proxy`
+
+Each release publishes version tags (for example, `1.2.3` and `1.2`) and the `latest` tag for non-prerelease versions. To use a specific release:
+
+```bash
+docker pull ghcr.io/edsouthgate87/filehoster:1.2.3
+docker pull ghcr.io/edsouthgate87/filehoster-proxy:1.2.3
+```
+
+The images are separate from the source repository's visibility. If the repository or packages are private, users need package access; make both packages public in their GitHub package settings before distributing them publicly. Dependabot checks NuGet packages, Docker base images, and GitHub Actions weekly.
 
 ## Local development
 

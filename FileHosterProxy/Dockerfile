@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY ["FileHosterProxy/FileHosterProxy.csproj", "."]
@@ -7,11 +7,11 @@ RUN dotnet restore "FileHosterProxy.csproj"
 COPY FileHosterProxy/ .
 RUN dotnet build "FileHosterProxy.csproj" -c Release -o /app/build
 
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
 # curl is required by the HEALTHCHECK below (and by docker-compose's healthcheck override);
-# the Debian-based aspnet runtime image does not include curl or wget by default.
+# the Ubuntu-based aspnet runtime image does not include curl or wget by default.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*

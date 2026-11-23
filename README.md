@@ -1,6 +1,6 @@
 # FileHoster
 
-FileHoster is a .NET 8 service for storing application packages and distributing them through short-lived signed download URLs. A separate proxy lets desktop clients list and download files without embedding the FileHoster secret.
+FileHoster is a .NET 10 service for storing application packages and distributing them through short-lived signed download URLs. A separate proxy lets desktop clients list and download files without embedding the FileHoster secret.
 
 Licensed under the [Apache License 2.0](LICENSE).
 
@@ -53,7 +53,7 @@ Projects:
 
 ## Prerequisites
 
-- .NET SDK 10.0.303 (selected by `global.json`; applications target .NET 8)
+- .NET SDK 10.0.303 or a later 10.0 feature band (selected by `global.json`; all projects target .NET 10 LTS)
 - Docker Desktop or Docker Engine with Compose
 - PowerShell 7 for the upload scripts (`pwsh` on PATH)
 - OpenSSH client for verified package uploads (`ssh` on PATH)

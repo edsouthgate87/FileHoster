@@ -47,8 +47,7 @@ app.MapControllers();
 
 // Health check endpoint
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))
-    .WithName("Health")
-    .WithOpenApi();
+    .WithName("Health");
 
 // Configure Kestrel to listen on all interfaces (required for Docker)
 app.Urls.Add("http://0.0.0.0:5001");

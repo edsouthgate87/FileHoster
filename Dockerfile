@@ -13,7 +13,7 @@ FROM build AS publish
 RUN dotnet publish "FileHoster.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 # Runtime stage
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine
+FROM mcr.microsoft.com/dotnet/aspnet:11.0-alpine
 
 WORKDIR /app
 
